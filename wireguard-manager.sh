@@ -1006,42 +1006,42 @@ if [ ! -f "${WIREGUARD_CONFIG}" ]; then
       case ${CLIENT_DNS_SETTINGS} in
       1)
         # Set DNS addresses for Cloudflare.
-        CLIENT_DNS="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"
+        CLIENT_DNS="1.1.1.1,1.0.0.1"
         ;;
       2)
         # Set DNS addresses for AdGuard.
-        CLIENT_DNS="94.140.14.14,94.140.15.15,2a10:50c0::ad1:ff,2a10:50c0::ad2:ff"
+        CLIENT_DNS="94.140.14.14,94.140.15.15"
         ;;
       3)
         # Set DNS addresses for NextDNS.
-        CLIENT_DNS="45.90.28.167,45.90.30.167,2a07:a8c0::12:cf53,2a07:a8c1::12:cf53"
+        CLIENT_DNS="45.90.28.167,45.90.30.167"
         ;;
       4)
         # Set DNS addresses for OpenDNS.
-        CLIENT_DNS="208.67.222.222,208.67.220.220,2620:119:35::35,2620:119:53::53"
+        CLIENT_DNS="208.67.222.222,208.67.220.220"
         ;;
       5)
         # Set DNS addresses for Google.
-        CLIENT_DNS="8.8.8.8,8.8.4.4,2001:4860:4860::8888,2001:4860:4860::8844"
+        CLIENT_DNS="8.8.8.8,8.8.4.4"
         ;;
       6)
         # Set DNS addresses for Verisign.
-        CLIENT_DNS="64.6.64.6,64.6.65.6,2620:74:1b::1:1,2620:74:1c::2:2"
+        CLIENT_DNS="64.6.64.6,64.6.65.6"
         ;;
       7)
         # Set DNS addresses for Quad9.
-        CLIENT_DNS="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9"
+        CLIENT_DNS="9.9.9.9,149.112.112.112"
         ;;
       8)
         # Set DNS addresses for FDN.
-        CLIENT_DNS="80.67.169.40,80.67.169.12,2001:910:800::40,2001:910:800::12"
+        CLIENT_DNS="80.67.169.40,80.67.169.12"
         ;;
       9)
         # Prompt the user to enter a custom DNS address.
         read -rp "Custom DNS:" CLIENT_DNS
         # If the user doesn't provide a custom DNS, default to Google's DNS.
         if [ -z "${CLIENT_DNS}" ]; then
-          CLIENT_DNS="8.8.8.8,8.8.4.4,2001:4860:4860::8888,2001:4860:4860::8844"
+          CLIENT_DNS="8.8.8.8,8.8.4.4"
         fi
         ;;
       10)
@@ -1346,7 +1346,6 @@ if [ ! -f "${WIREGUARD_CONFIG}" ]; then
         mv ${RESOLV_CONFIG} ${RESOLV_CONFIG_OLD}
       fi
       echo "nameserver 127.0.0.1" >${RESOLV_CONFIG}
-      echo "nameserver ::1" >>${RESOLV_CONFIG}
       chattr +i ${RESOLV_CONFIG}
       # Save Unbound status to UNBOUND_MANAGER file.
       echo "Unbound: true" >${UNBOUND_MANAGER}
@@ -1581,9 +1580,13 @@ else
       SERVER_PUBKEY=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=5)
       # Get the client DNS server, MTU choice, NAT choice, and allowed IP address from the WireGuard config file
       CLIENT_DNS=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=6)
+      # Remove IPv6 DNS addresses if present
+      CLIENT_DNS=$(echo "${CLIENT_DNS}" | sed 's/,[^,]*::[^,]*//g' | sed 's/^[^,]*::[^,]*,//g' | sed 's/^[^,]*::[^,]*$//g')
       MTU_CHOICE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=7)
       NAT_CHOICE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=8)
       CLIENT_ALLOWED_IP=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=9)
+      # Remove IPv6 addresses from CLIENT_ALLOWED_IP if present
+      CLIENT_ALLOWED_IP=$(echo "${CLIENT_ALLOWED_IP}" | sed 's/,::[^,]*//g' | sed 's/^::[^,]*,//g' | sed 's/^::[^,]*$//g')
       # Calculate the client's IP address based on the last IP address used
       CLIENT_ADDRESS_V4=$(echo "${PRIVATE_SUBNET_V4}" | cut --delimiter="." --fields=1-3).$((LASTIPV4 + 1))
       # Check if there are any unused IP addresses available
