@@ -213,8 +213,51 @@ WIREGUARD_WEBSITE_URL="https://www.wireguard.com"
 WIREGUARD_PATH="/etc/wireguard"
 # Assigns a path for WireGuard clients
 WIREGUARD_CLIENT_PATH="${WIREGUARD_PATH}/clients"
-# Assigns a public network interface name for WireGuard
-WIREGUARD_PUB_NIC="wg0"
+# Define a function to select WireGuard interface
+function select-wireguard-interface() {
+  # List existing WireGuard configuration files
+  echo "Please select a WireGuard interface to manage:"
+  EXISTING_CONFIGS=($(ls ${WIREGUARD_PATH}/*.conf 2>/dev/null | xargs -n 1 basename 2>/dev/null | sed 's/.conf$//' 2>/dev/null || echo ""))
+  
+  # Display existing configurations
+  local option_count=1
+  for config in "${EXISTING_CONFIGS[@]}"; do
+    if [ -n "${config}" ]; then
+      echo "  ${option_count}) ${config} (Existing)"
+      ((option_count++))
+    fi
+  done
+  
+  # Add custom option
+  echo "  ${option_count}) Custom (Create new interface)"
+  
+  # Get the maximum option number
+  local max_option=${option_count}
+  
+  # Keep prompting until valid choice is made
+  until [[ "${WIREGUARD_INTERFACE_CHOICE}" =~ ^[1-9][0-9]*$ ]] && [ "${WIREGUARD_INTERFACE_CHOICE}" -ge 1 ] && [ "${WIREGUARD_INTERFACE_CHOICE}" -le "${max_option}" ]; do
+    read -rp "Interface Choice [1-${max_option}]: " -e -i 1 WIREGUARD_INTERFACE_CHOICE
+  done
+  
+  # Set WIREGUARD_PUB_NIC based on user choice
+  if [ "${WIREGUARD_INTERFACE_CHOICE}" -eq "${max_option}" ]; then
+    # Custom interface name
+    read -rp "Enter custom interface name (e.g., wg1, wg-server): " CUSTOM_INTERFACE_NAME
+    if [ -z "${CUSTOM_INTERFACE_NAME}" ]; then
+      WIREGUARD_PUB_NIC="wg0"
+    else
+      WIREGUARD_PUB_NIC="${CUSTOM_INTERFACE_NAME}"
+    fi
+  else
+    # Use existing interface
+    local selected_index=$((WIREGUARD_INTERFACE_CHOICE - 1))
+    WIREGUARD_PUB_NIC="${EXISTING_CONFIGS[${selected_index}]}"
+  fi
+}
+
+# Call the interface selection function
+select-wireguard-interface
+
 # Assigns a path for the WireGuard configuration file
 WIREGUARD_CONFIG="${WIREGUARD_PATH}/${WIREGUARD_PUB_NIC}.conf"
 # Assigns a path for the WireGuard additional peer configuration file
