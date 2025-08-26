@@ -791,14 +791,14 @@ if [ ! -f "${WIREGUARD_CONFIG}" ]; then
     case ${CLIENT_ALLOWED_IP_SETTINGS} in
     1)
       # If the user chose the default option, set the CLIENT_ALLOWED_IP to allow all traffic.
-      CLIENT_ALLOWED_IP="0.0.0.0/0,::/0"
+      CLIENT_ALLOWED_IP="0.0.0.0/0"
       ;;
     2)
       # If the user chose the custom option, prompt them to enter a custom IP range.
       read -rp "Custom IP Range:" CLIENT_ALLOWED_IP
       # If no custom IP range is entered, set the CLIENT_ALLOWED_IP variable to allow all traffic.
       if [ -z "${CLIENT_ALLOWED_IP}" ]; then
-        CLIENT_ALLOWED_IP="0.0.0.0/0,::/0"
+        CLIENT_ALLOWED_IP="0.0.0.0/0"
       fi
       ;;
     esac
@@ -1323,9 +1323,8 @@ if [ ! -f "${WIREGUARD_CONFIG}" ]; then
     # Generate client private and public keys
     CLIENT_PRIVKEY=$(wg genkey)
     CLIENT_PUBKEY=$(echo "${CLIENT_PRIVKEY}" | wg pubkey)
-    # Assign client IPv4 and IPv6 addresses
+    # Assign client IPv4 address
     CLIENT_ADDRESS_V4=$(echo "${PRIVATE_SUBNET_V4}" | cut --delimiter="." --fields=1-3).2
-    CLIENT_ADDRESS_V6=$(echo "${PRIVATE_SUBNET_V6}" | cut --delimiter=":" --fields=1-4):2
     # Generate pre-shared key and random port for the client
     PRESHARED_KEY=$(wg genpsk)
     PEER_PORT=$(shuf --input-range=1024-65535 --head-count=1)
@@ -1346,7 +1345,7 @@ if [ ! -f "${WIREGUARD_CONFIG}" ]; then
     # Create server WireGuard configuration file
     echo "# ${PRIVATE_SUBNET_V4} ${PRIVATE_SUBNET_V6} ${SERVER_HOST}:${SERVER_PORT} ${SERVER_PUBKEY} ${CLIENT_DNS} ${PEER_MTU_CHOICE} ${NAT_CHOICE} ${CLIENT_ALLOWED_IP}
 [Interface]
-Address = ${GATEWAY_ADDRESS_V4}/${PRIVATE_SUBNET_MASK_V4},${GATEWAY_ADDRESS_V6}/${PRIVATE_SUBNET_MASK_V6}
+Address = ${GATEWAY_ADDRESS_V4}/${PRIVATE_SUBNET_MASK_V4}
 ListenPort = ${SERVER_PORT}
 MTU = ${INTERFACE_MTU_CHOICE}
 PrivateKey = ${SERVER_PRIVKEY}
@@ -1357,13 +1356,13 @@ SaveConfig = false
 [Peer]
 PublicKey = ${CLIENT_PUBKEY}
 PresharedKey = ${PRESHARED_KEY}
-AllowedIPs = ${CLIENT_ADDRESS_V4}/32,${CLIENT_ADDRESS_V6}/128
+AllowedIPs = ${CLIENT_ADDRESS_V4}/32
 # ${CLIENT_NAME} end" >>${WIREGUARD_CONFIG}
 
     # Generate client-specific WireGuard configuration file
     echo "# ${WIREGUARD_WEBSITE_URL}
 [Interface]
-Address = ${CLIENT_ADDRESS_V4}/${PRIVATE_SUBNET_MASK_V4},${CLIENT_ADDRESS_V6}/${PRIVATE_SUBNET_MASK_V6}
+Address = ${CLIENT_ADDRESS_V4}/${PRIVATE_SUBNET_MASK_V4}
 ListenPort = ${PEER_PORT}
 MTU = ${PEER_MTU_CHOICE}
 PrivateKey = ${CLIENT_PRIVKEY}
@@ -1468,12 +1467,9 @@ else
       fi
       # Extract the last IPv4 address used in the WireGuard configuration file
       LASTIPV4=$(grep "AllowedIPs" ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=4 | tail --lines=1)
-      # Extract the last IPv6 address used in the WireGuard configuration file
-      LASTIPV6=$(grep "AllowedIPs" ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="," --fields=2 | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=5 | tail --lines=1)
-      # If no IPv4 and IPv6 addresses are found in the configuration file, set the initial values to 1
-      if { [ -z "${LASTIPV4}" ] && [ -z "${LASTIPV6}" ]; }; then
+      # If no IPv4 address is found in the configuration file, set the initial value to 1
+      if [ -z "${LASTIPV4}" ]; then
         LASTIPV4=1
-        LASTIPV6=1
       fi
       # Find the smallest used IPv4 address in the WireGuard configuration file
       SMALLEST_USED_IPV4=$(grep "AllowedIPs" ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=4 | sort --numeric-sort | head --lines=1)
@@ -1489,67 +1485,40 @@ else
         fi
         SMALLEST_USED_IPV4=$((SMALLEST_USED_IPV4 + 1))
       done
-      # Find the smallest used IPv6 address in the WireGuard configuration file
-      SMALLEST_USED_IPV6=$(grep "AllowedIPs" ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="," --fields=2 | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=5 | sort --numeric-sort | head --lines=1)
-      # Find the largest used IPv6 address in the WireGuard configuration file
-      LARGEST_USED_IPV6=$(grep "AllowedIPs" ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="," --fields=2 | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=5 | sort --numeric-sort | tail --lines=1)
-      # Create a list of used IPv6 addresses in the WireGuard configuration file
-      USED_IPV6_LIST=$(grep "AllowedIPs" ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="," --fields=2 | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=5 | sort --numeric-sort)
-      # Loop through IPv6 addresses and find an unused one
-      while [ "${SMALLEST_USED_IPV6}" -le "${LARGEST_USED_IPV6}" ]; do
-        if [[ ! ${USED_IPV6_LIST[*]} =~ ${SMALLEST_USED_IPV6} ]]; then
-          FIND_UNUSED_IPV6=${SMALLEST_USED_IPV6}
-          break
-        fi
-        SMALLEST_USED_IPV6=$((SMALLEST_USED_IPV6 + 1))
-      done
-      # If unused IPv4 and IPv6 addresses are found, set them as the last IPv4 and IPv6 addresses
-      if { [ -n "${FIND_UNUSED_IPV4}" ] && [ -n "${FIND_UNUSED_IPV6}" ]; }; then
+      # If unused IPv4 address is found, set it as the last IPv4 address
+      if [ -n "${FIND_UNUSED_IPV4}" ]; then
         LASTIPV4=$(echo "${FIND_UNUSED_IPV4}" | head --lines=1)
-        LASTIPV6=$(echo "${FIND_UNUSED_IPV6}" | head --lines=1)
       fi
-      if { [ "${LASTIPV4}" -ge 255 ] && [ "${LASTIPV6}" -ge 255 ]; }; then
-        # Get the current IPv4 and IPv6 ranges from the WireGuard config file
+      if [ "${LASTIPV4}" -ge 255 ]; then
+        # Get the current IPv4 range from the WireGuard config file
         CURRENT_IPV4_RANGE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=2)
-        CURRENT_IPV6_RANGE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3)
-        # Get the last octet of the IPv4 range and the fifth hextet of the IPv6 range
+        # Get the last octet of the IPv4 range
         IPV4_BEFORE_BACKSLASH=$(echo "${CURRENT_IPV4_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=4)
-        IPV6_BEFORE_BACKSLASH=$(echo "${CURRENT_IPV6_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=5)
-        # Get the second octet of the IPv4 range and the second hextet of the IPv6 range
+        # Get the second octet of the IPv4 range
         IPV4_AFTER_FIRST=$(echo "${CURRENT_IPV4_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=2)
-        IPV6_AFTER_FIRST=$(echo "${CURRENT_IPV6_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=2)
-        # Get the second and third octets of the IPv4 range and the third and fourth hextets of the IPv6 range
+        # Get the second and third octets of the IPv4 range
         SECOND_IPV4_IN_RANGE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=2 | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=2)
-        SECOND_IPV6_IN_RANGE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=2)
         THIRD_IPV4_IN_RANGE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=2 | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=3)
-        THIRD_IPV6_IN_RANGE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=3)
-        # Calculate the next IPv4 and IPv6 ranges
+        # Calculate the next IPv4 range
         NEXT_IPV4_RANGE=$((THIRD_IPV4_IN_RANGE + 1))
-        NEXT_IPV6_RANGE=$((THIRD_IPV6_IN_RANGE + 1))
-        # Get the CIDR notation for the current IPv4 and IPv6 ranges
+        # Get the CIDR notation for the current IPv4 range
         CURRENT_IPV4_RANGE_CIDR=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=2 | cut --delimiter="/" --fields=2)
-        CURRENT_IPV6_RANGE_CIDR=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=3 | cut --delimiter="/" --fields=2)
         FINAL_IPV4_RANGE=$(echo "${CURRENT_IPV4_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=1,2)".${NEXT_IPV4_RANGE}.${IPV4_BEFORE_BACKSLASH}/${CURRENT_IPV4_RANGE_CIDR}"
-        FINAL_IPV6_RANGE=$(echo "${CURRENT_IPV6_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=1,2)":${NEXT_IPV6_RANGE}::${IPV6_BEFORE_BACKSLASH}/${CURRENT_IPV6_RANGE_CIDR}"
-        if { [ "${THIRD_IPV4_IN_RANGE}" -ge 255 ] && [ "${THIRD_IPV6_IN_RANGE}" -ge 255 ]; }; then
-          if { [ "${SECOND_IPV4_IN_RANGE}" -ge 255 ] && [ "${SECOND_IPV6_IN_RANGE}" -ge 255 ] && [ "${THIRD_IPV4_IN_RANGE}" -ge 255 ] && [ "${THIRD_IPV6_IN_RANGE}" -ge 255 ] && [ "${LASTIPV4}" -ge 255 ] && [ "${LASTIPV6}" -ge 255 ]; }; then
+        if [ "${THIRD_IPV4_IN_RANGE}" -ge 255 ]; then
+          if { [ "${SECOND_IPV4_IN_RANGE}" -ge 255 ] && [ "${THIRD_IPV4_IN_RANGE}" -ge 255 ] && [ "${LASTIPV4}" -ge 255 ]; }; then
             # If all IP ranges are at their maximum value, then exit with an error message
             echo "Error: You are unable to add any more peers."
             exit
           fi
-          # Calculate the next IPv4 and IPv6 ranges
+          # Calculate the next IPv4 range
           NEXT_IPV4_RANGE=$((SECOND_IPV4_IN_RANGE + 1))
-          NEXT_IPV6_RANGE=$((SECOND_IPV6_IN_RANGE + 1))
-          # Calculate the final IPv4 and IPv6 ranges
+          # Calculate the final IPv4 range
           FINAL_IPV4_RANGE=$(echo "${CURRENT_IPV4_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter="." --fields=1)".${NEXT_IPV4_RANGE}.${IPV4_AFTER_FIRST}.${IPV4_BEFORE_BACKSLASH}/${CURRENT_IPV4_RANGE_CIDR}"
-          FINAL_IPV6_RANGE=$(echo "${CURRENT_IPV6_RANGE}" | cut --delimiter="/" --fields=1 | cut --delimiter=":" --fields=1)":${NEXT_IPV6_RANGE}:${IPV6_AFTER_FIRST}::${IPV6_BEFORE_BACKSLASH}/${CURRENT_IPV6_RANGE_CIDR}"
         fi
-        # Replace the current IPv4 and IPv6 ranges with the final IPv4 and IPv6 ranges in the WireGuard config file
+        # Replace the current IPv4 range with the final IPv4 range in the WireGuard config file
         sed --in-place "1s|${CURRENT_IPV4_RANGE}|${FINAL_IPV4_RANGE}|" ${WIREGUARD_CONFIG}
-        sed --in-place "1s|${CURRENT_IPV6_RANGE}|${FINAL_IPV6_RANGE}|" ${WIREGUARD_CONFIG}
-        # Set LASTIPV4 and LASTIPV6 to their maximum values to indicate that no more peers can be added
+        # Set LASTIPV4 to 1 to reset the counter
         LASTIPV4=1
-        LASTIPV6=1
       fi
       # Generate a private key for the client
       CLIENT_PRIVKEY=$(wg genkey)
@@ -1572,30 +1541,28 @@ else
       MTU_CHOICE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=7)
       NAT_CHOICE=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=8)
       CLIENT_ALLOWED_IP=$(head --lines=1 ${WIREGUARD_CONFIG} | cut --delimiter=" " --fields=9)
-      # Calculate the client's IP addresses based on the last IP addresses used
+      # Calculate the client's IP address based on the last IP address used
       CLIENT_ADDRESS_V4=$(echo "${PRIVATE_SUBNET_V4}" | cut --delimiter="." --fields=1-3).$((LASTIPV4 + 1))
-      CLIENT_ADDRESS_V6=$(echo "${PRIVATE_SUBNET_V6}" | cut --delimiter=":" --fields=1-4):$((LASTIPV6 + 1))
       # Check if there are any unused IP addresses available
-      if { [ -n "${FIND_UNUSED_IPV4}" ] && [ -n "${FIND_UNUSED_IPV6}" ]; }; then
+      if [ -n "${FIND_UNUSED_IPV4}" ]; then
         CLIENT_ADDRESS_V4=$(echo "${CLIENT_ADDRESS_V4}" | cut --delimiter="." --fields=1-3).${LASTIPV4}
-        CLIENT_ADDRESS_V6=$(echo "${CLIENT_ADDRESS_V6}" | cut --delimiter=":" --fields=1-4):${LASTIPV6}
       fi
       # Create a temporary file to store the new client information
       WIREGUARD_TEMP_NEW_CLIENT_INFO="# ${NEW_CLIENT_NAME} start
 [Peer]
 PublicKey = ${CLIENT_PUBKEY}
 PresharedKey = ${PRESHARED_KEY}
-AllowedIPs = ${CLIENT_ADDRESS_V4}/32,${CLIENT_ADDRESS_V6}/128
+AllowedIPs = ${CLIENT_ADDRESS_V4}/32
 # ${NEW_CLIENT_NAME} end"
       # Write the temporary new client information to the 'add peer' configuration file
       echo "${WIREGUARD_TEMP_NEW_CLIENT_INFO}" >${WIREGUARD_ADD_PEER_CONFIG}
       # Add the new peer configuration to the WireGuard interface
       wg addconf ${WIREGUARD_PUB_NIC} ${WIREGUARD_ADD_PEER_CONFIG}
-      # If there are no unused IPv4 and IPv6 addresses, append the new client information to the WireGuard configuration file
-      if { [ -z "${FIND_UNUSED_IPV4}" ] && [ -z "${FIND_UNUSED_IPV6}" ]; }; then
+      # If there are no unused IPv4 addresses, append the new client information to the WireGuard configuration file
+      if [ -z "${FIND_UNUSED_IPV4}" ]; then
         echo "${WIREGUARD_TEMP_NEW_CLIENT_INFO}" >>${WIREGUARD_CONFIG}
-      # If there are unused IPv4 and IPv6 addresses, modify the 'add peer' configuration file and insert the new client information into the WireGuard configuration file
-      elif { [ -n "${FIND_UNUSED_IPV4}" ] && [ -n "${FIND_UNUSED_IPV6}" ]; }; then
+      # If there are unused IPv4 addresses, modify the 'add peer' configuration file and insert the new client information into the WireGuard configuration file
+      elif [ -n "${FIND_UNUSED_IPV4}" ]; then
         sed --in-place "s|$|\\\n|" "${WIREGUARD_ADD_PEER_CONFIG}"
         sed --in-place "6s|\\\n||" "${WIREGUARD_ADD_PEER_CONFIG}"
         # Remove newline characters from the 'add peer' configuration file
@@ -1610,7 +1577,7 @@ AllowedIPs = ${CLIENT_ADDRESS_V4}/32,${CLIENT_ADDRESS_V6}/128
       # Create the client configuration file
       echo "# ${WIREGUARD_WEBSITE_URL}
 [Interface]
-Address = ${CLIENT_ADDRESS_V4}/${PRIVATE_SUBNET_MASK_V4},${CLIENT_ADDRESS_V6}/${PRIVATE_SUBNET_MASK_V6}
+Address = ${CLIENT_ADDRESS_V4}/${PRIVATE_SUBNET_MASK_V4}
 ListenPort = ${PEER_PORT}
 MTU = ${MTU_CHOICE}
 PrivateKey = ${CLIENT_PRIVKEY}
